@@ -1,11 +1,20 @@
 from label_processor import *
 from build_models import *
 from feature_extractor import *
-
+import cv2
 import numpy as np
+import math
 import pandas as pd
+from tqdm.auto import tqdm
+import random
+import string
+from copy import deepcopy
 from sklearn.neighbors import NearestNeighbors
+import timm
 import torch
+import torchvision.transforms as transforms
+from torch import nn
+from PIL import Image
 import pymorphy2
 
 morph = pymorphy2.MorphAnalyzer()
@@ -18,18 +27,15 @@ test = pd.read_csv('data/test.csv')
 
 
 class LabelInfo:
-    BIGGEST_GROUP = 0
     def __init__(self):
         self.ids = []
         self.extra_embs = []
-        self.labels = []
         self.embs = []
         self.mean_emb = None
         self.neigh = None
 
-    def add(self, idx, label, emb):
+    def add(self, idx, emb):
         self.ids.append(idx)
-        self.labels.append(label)
         self.embs.append(emb)
 
     def process(self):
@@ -38,10 +44,9 @@ class LabelInfo:
         self.embs = np.concatenate(self.embs, axis=0)
         self.mean_emb = np.mean(self.embs, axis=0)
 
-        self.neigh = NearestNeighbors(n_neighbors=min(10, self.embs.shape[0]), metric='euclidean')
+        self.neigh = NearestNeighbors(n_neighbors=min(10, self.embs.shape[0]), metric='cosine')
         self.neigh.fit(self.embs)
 
-        LabelInfo.BIGGEST_GROUP = max(LabelInfo.BIGGEST_GROUP, self.embs.shape[0])
         return self.mean_emb
 
     def get_best_ids(self, emb, k, mean_distance):
@@ -52,20 +57,19 @@ class LabelInfo:
         distances = 1 - distances[0]
         idxs = idxs[0]
         for i in range(k):
-            distances[i] = 1 * distances[i]
-            distances[i] += 100 * (self.embs.shape[0] / LabelInfo.BIGGEST_GROUP)
-            distances[i] += 1000 * mean_distance
-            distances[i] /= (1 + 100 + 1000)
             idxs[i] = self.ids[idxs[i]]
+            distances[i] = (1 * distances[i] + 100000 * mean_distance) / 100001
         return distances, idxs
 
 
 def get_result(db, que, models_data_, db_dir='data/test/', que_dir='data/queries/'):
+
     # db = db.iloc[:10]
     # que = que.iloc[:5]
 
     label2id = {}
     id2label = []
+
     label_info = []
 
     db_emb = get_emb(db, models_data_, db_dir)
@@ -74,7 +78,6 @@ def get_result(db, que, models_data_, db_dir='data/test/', que_dir='data/queries
     for (_, row), emb in zip(db.iterrows(), db_emb):
         idx = row.idx
         label = row.item_nm
-
         if db.shape[0] > 10:
             label = label_process(label)
 
@@ -82,14 +85,14 @@ def get_result(db, que, models_data_, db_dir='data/test/', que_dir='data/queries
             label2id[label] = len(id2label)
             id2label.append(label)
             label_info.append(LabelInfo())
-        label_info[label2id[label]].add(idx, row.item_nm, emb)
+        label_info[label2id[label]].add(idx, emb)
 
     general_emb = []
     for i in range(len(label_info)):
         general_emb.append(label_info[i].process())
     general_emb = np.array(general_emb)
 
-    general_neigh = NearestNeighbors(n_neighbors=10, metric='euclidean')
+    general_neigh = NearestNeighbors(n_neighbors=10, metric='cosine')
     general_neigh.fit(general_emb)
     mean_distance, folder_ids = general_neigh.kneighbors(que_emb, 10, return_distance=True)
     mean_distance = 1 - mean_distance

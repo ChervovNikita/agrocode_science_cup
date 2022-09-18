@@ -1,4 +1,5 @@
 import pymorphy2
+
 morph = pymorphy2.MorphAnalyzer()
 
 
@@ -40,5 +41,7 @@ def label_process(nm):
             if 'NOUN' in tag or 'ADJF' in tag:
                 new_nm += word + ' '
     nm = delete_double_spaces(new_nm)
+
+    # nm = ' '.join(sorted(nm.split(' ')))
 
     return nm
