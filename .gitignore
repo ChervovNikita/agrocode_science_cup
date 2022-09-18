@@ -1,0 +1,14 @@
+.idea
+venv
+
+*.ipynb_checkpoints
+__pycache__
+results.txt
+
+*.csv
+*.pdf
+
+unused_weights
+
+data/*
+!data/.gitkeep
